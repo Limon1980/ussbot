@@ -203,8 +203,100 @@ function cropImage($aInitialImageFilePath, $aNewImageFilePath, $aNewImageWidth, 
 }
 
 
+// Функция проверки лимита объявлений (2 объявления в день с 14:00 UTC)
+function checkAdLimit($dbh, $chat_id) {
+    // Получаем начало текущего дня с 14:00 UTC
+    $today_start = new DateTime();
+    $today_start->setTimezone(new DateTimeZone('UTC'));
+    $today_start->setTime(14, 0, 0);
+    
+    // Если текущее время меньше 14:00, берем предыдущий день
+    $now = new DateTime('now', new DateTimeZone('UTC'));
+    if ($now->format('H:i') < '14:00') {
+        $today_start->modify('-1 day');
+    }
+    
+    $start_time = $today_start->format('Y-m-d H:i:s');
+    
+    // Проверяем количество объявлений с начала дня
+    try {
+        $result = $dbh->query("SELECT COUNT(*) as count FROM base_baraholka WHERE chat_id = $chat_id AND date >= '$start_time' AND post = 1");
+        return $result[0]['count'] ?? 0;
+    } catch (Exception $e) {
+        return 0;
+    }
+}
+
+// Функция проверки оплаченных объявлений
+function checkPaidAds($dbh, $chat_id) {
+    // Получаем начало текущего дня с 14:00 UTC
+    $today_start = new DateTime();
+    $today_start->setTimezone(new DateTimeZone('UTC'));
+    $today_start->setTime(14, 0, 0);
+    
+    // Если текущее время меньше 14:00, берем предыдущий день
+    $now = new DateTime('now', new DateTimeZone('UTC'));
+    if ($now->format('H:i') < '14:00') {
+        $today_start->modify('-1 day');
+    }
+    
+    $start_time = $today_start->format('Y-m-d H:i:s');
+    
+    // Проверяем количество оплаченных объявлений с начала дня
+    try {
+        $result = $dbh->query("SELECT COUNT(*) as count FROM paid_ads WHERE chat_id = $chat_id AND created_at >= '$start_time'");
+        return $result[0]['count'] ?? 0;
+    } catch (Exception $e) {
+        return 0;
+    }
+}
+
+// Функция создания кнопки оплаты
+function createPaymentButton($IdPhoto) {
+    return [
+        'inline_keyboard' => [
+            [
+                ['text' => '💰 Оплатить размещение (50 руб)', 'callback_data' => 'pay_' . $IdPhoto]
+            ]
+        ]
+    ];
+}
+
 function publishAd($dbh, $telegram, $token, $chat_id, $IdPhoto, $chatAdmin)
 {
+    // Проверяем, оплачено ли текущее объявление
+    try {
+        $current_ad_paid = $dbh->query("SELECT * FROM paid_ads WHERE ad_id = $IdPhoto");
+        $is_current_paid = !empty($current_ad_paid);
+    } catch (Exception $e) {
+        $is_current_paid = false;
+    }
+    
+    // Если объявление не оплачено, проверяем лимит
+    if (!$is_current_paid) {
+        $ads_count = checkAdLimit($dbh, $chat_id);
+        
+        // Если превышен лимит
+        if ($ads_count >= 2) {
+            $reply = "❌ <b>Лимит объявлений исчерпан!</b>\n\n";
+            $reply .= "Вы можете подавать не более <b>2 объявлений в сутки</b> (с 14:00 по UTC).\n";
+            $reply .= "Сегодня вы уже подали: <b>{$ads_count} объявления</b>\n\n";
+            $reply .= "Завтра лимит обновится в 14:00 UTC.\n\n";
+            $reply .= "Или вы можете оплатить размещение объявления сейчас:";
+            
+            $reply_markup = json_encode(createPaymentButton($IdPhoto));
+            
+            $telegram->sendMessage([
+                'chat_id' => $chat_id,
+                'text' => $reply,
+                'parse_mode' => 'HTML',
+                'reply_markup' => $reply_markup
+            ]);
+            
+            return false; // Не публикуем объявление
+        }
+    }
+    
     // Берем из базы объявление с модерацией 0
     $Row = $dbh->query("SELECT text, phone, username FROM base_baraholka WHERE chat_id = $chat_id AND moder = 0 AND id=$IdPhoto");
     $phone = $Row[0]['phone'];
@@ -256,9 +348,19 @@ function publishAd($dbh, $telegram, $token, $chat_id, $IdPhoto, $chatAdmin)
 	
 		
 
+    // Используем уже проверенный статус оплаты
+    $is_paid = $is_current_paid;
+    
     $reply = "Объявление отправлено на модерацию и скоро будет опубликовано. \nЗапустите бота вновь командой\n /start";
     $reply_markup = json_encode(['remove_keyboard' => true]);
-    $telegram->sendMessage(['chat_id' => $chatAdmin, 'text' => 'Объявление от пользователя ' . $nick . ' чат ID ' . $chat_id]);
+    
+    // Уведомление админу
+    $admin_message = 'Объявление от пользователя ' . $nick . ' чат ID ' . $chat_id;
+    if ($is_paid) {
+        $admin_message = '💰 <b>ОПЛАЧЕННОЕ ОБЪЯВЛЕНИЕ</b> 💰' . "\n" . $admin_message;
+    }
+    
+    $telegram->sendMessage(['chat_id' => $chatAdmin, 'text' => $admin_message, 'parse_mode' => 'HTML']);
     if (!$RowIdBase) {
         $telegram->sendMessage(['chat_id' => $chatAdmin, 'text' => $text, 'parse_mode' => 'HTML']);
     }
@@ -287,6 +389,8 @@ function publishAd($dbh, $telegram, $token, $chat_id, $IdPhoto, $chatAdmin)
     $dbh->query("UPDATE base_baraholka SET moder=1 WHERE chat_id=$chat_id");
     $comand = '';
     $dbh->query("UPDATE bufer_baraholka_bot SET comand='$comand' WHERE chat_id=$chat_id");
+    
+    return true;
 }
 
 // Функция публикации только текста объявления
@@ -398,6 +502,56 @@ function formatMessage(?string $message, array $entities): ?string {
     // Конвертируем обратно в UTF-8
     $result = mb_convert_encoding($messageUtf16, 'UTF-8', 'UTF-16LE');
     return $result;
+}
+
+// Функция обработки оплаты объявления
+function processPayment($dbh, $telegram, $chat_id, $ad_id) {
+    // Проверяем, не оплачено ли уже объявление
+    try {
+        $existing = $dbh->query("SELECT * FROM paid_ads WHERE ad_id = $ad_id");
+        if (!empty($existing)) {
+            return false; // Уже оплачено
+        }
+        
+        // Добавляем запись об оплаченном объявлении
+        $dbh->query("INSERT INTO paid_ads (ad_id, chat_id, created_at) VALUES ($ad_id, $chat_id, NOW())");
+    } catch (Exception $e) {
+        return false;
+    }
+    
+    // Отправляем сообщение пользователю
+    $reply = "✅ <b>Спасибо за оплату!</b>\n\n";
+    $reply .= "Ваше объявление будет опубликовано вне очереди.\n";
+    $reply .= "Администратор получил уведомление о том, что объявление оплачено.";
+    
+    $telegram->sendMessage([
+        'chat_id' => $chat_id,
+        'text' => $reply,
+        'parse_mode' => 'HTML'
+    ]);
+    
+    return true;
+}
+
+// Функция создания SQL для создания таблиц
+function createTables($dbh) {
+    // Создаем таблицу для оплаченных объявлений
+    $sql1 = "CREATE TABLE IF NOT EXISTS paid_ads (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        ad_id INT NOT NULL,
+        chat_id BIGINT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_ad_id (ad_id),
+        INDEX idx_chat_id (chat_id),
+        INDEX idx_created_at (created_at)
+    )";
+    
+    try {
+        $dbh->query($sql1);
+        return true;
+    } catch (Exception $e) {
+        return false;
+    }
 }
 
 ?>

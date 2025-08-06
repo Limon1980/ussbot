@@ -18,6 +18,9 @@ include ('func.lib.php');
 	$token = 'token';
     $telegram = new Api($token); //Устанавливаем токен, полученный у BotFather
 	$dbh = new Db();
+	
+	// Создаем необходимые таблицы при первом запуске
+	createTables($dbh);
 
 	
 	
@@ -733,15 +736,101 @@ include ('func.lib.php');
 		  $username = $callback_query['from']['username'];
 		  $callback_id = $callback_query['id'];
 
+		  // Обработка оплаты объявления
+		  if (strpos($data, 'pay_') === 0) {
+			  $ad_id = str_replace('pay_', '', $data);
+			  
+			  // Проверяем, принадлежит ли объявление пользователю
+			  $ad_check = $dbh->query("SELECT * FROM base_baraholka WHERE id = $ad_id AND chat_id = $chat_id");
+			  
+			  if (!empty($ad_check)) {
+				  // Показываем информацию об оплате
+				  $payment_text = "💰 <b>Оплата размещения объявления</b>\n\n";
+				  $payment_text .= "Стоимость: <b>50 рублей</b>\n";
+				  $payment_text .= "Номер объявления: <b>#{$ad_id}</b>\n\n";
+				  $payment_text .= "Для оплаты напишите администратору: @olegpopjs\n";
+				  $payment_text .= "Укажите номер объявления: <b>#{$ad_id}</b>\n\n";
+				  $payment_text .= "После подтверждения оплаты ваше объявление будет опубликовано.";
+				  
+				  // Кнопка подтверждения оплаты (для демонстрации)
+				  $reply_markup = [
+					  'inline_keyboard' => [
+						  [
+							  ['text' => '✅ Я оплатил объявление', 'callback_data' => 'confirm_payment_' . $ad_id]
+						  ]
+					  ]
+				  ];
+				  
+				  $telegram->editMessageText([
+					  'chat_id' => $chat_id,
+					  'message_id' => $mesId,
+					  'text' => $payment_text,
+					  'parse_mode' => 'HTML',
+					  'reply_markup' => json_encode($reply_markup)
+				  ]);
+			  } else {
+				  $telegram->answerCallbackQuery([
+					  'callback_query_id' => $callback_id,
+					  'text' => 'Ошибка: объявление не найдено',
+					  'show_alert' => true
+				  ]);
+			  }
+		  }
+		  // Обработка подтверждения оплаты
+		  elseif (strpos($data, 'confirm_payment_') === 0) {
+			  $ad_id = str_replace('confirm_payment_', '', $data);
+			  
+			  // Проверяем, принадлежит ли объявление пользователю
+			  $ad_check = $dbh->query("SELECT * FROM base_baraholka WHERE id = $ad_id AND chat_id = $chat_id");
+			  
+			  if (!empty($ad_check)) {
+				  // Обрабатываем оплату
+				  if (processPayment($dbh, $telegram, $chat_id, $ad_id)) {
+					  // Уведомляем админа об оплаченном объявлении
+					  $admin_notification = "💰 <b>ПОЛУЧЕНА ОПЛАТА ЗА ОБЪЯВЛЕНИЕ</b> 💰\n\n";
+					  $admin_notification .= "Номер объявления: <b>#{$ad_id}</b>\n";
+					  $admin_notification .= "Пользователь: @{$username} (ID: {$chat_id})\n";
+					  $admin_notification .= "Сумма: <b>50 рублей</b>\n\n";
+					  $admin_notification .= "Объявление готово к публикации:\n";
+					  $admin_notification .= "/post{$ad_id}";
+					  
+					  $telegram->sendMessage([
+						  'chat_id' => $chatAdmin,
+						  'text' => $admin_notification,
+						  'parse_mode' => 'HTML'
+					  ]);
+					  
+					  // Удаляем кнопки оплаты
+					  $telegram->editMessageText([
+						  'chat_id' => $chat_id,
+						  'message_id' => $mesId,
+						  'text' => "✅ <b>Оплата подтверждена!</b>\n\nВаше объявление отправлено на модерацию и будет опубликовано в ближайшее время.",
+						  'parse_mode' => 'HTML'
+					  ]);
+				  } else {
+					  $telegram->answerCallbackQuery([
+						  'callback_query_id' => $callback_id,
+						  'text' => 'Объявление уже оплачено',
+						  'show_alert' => true
+					  ]);
+				  }
+			  } else {
+				  $telegram->answerCallbackQuery([
+					  'callback_query_id' => $callback_id,
+					  'text' => 'Ошибка: объявление не найдено',
+					  'show_alert' => true
+				  ]);
+			  }
+		  }
+		  else {
+			  $request_params = [
+				'callback_query_id' => $callback_id,
+				'text' => "Вы выбрали: $data"
+			  ];
 
-
-		  $request_params = [
-			'callback_query_id' => $callback_id,
-			'text' => "Вы выбрали: $data"
-		  ];
-
-		  // Проверяем ответ на отправку и добавляем отладку
-		  $answerResponse = sendTm($token, 'answerCallbackQuery', $request_params);
+			  // Проверяем ответ на отправку и добавляем отладку
+			  $answerResponse = sendTm($token, 'answerCallbackQuery', $request_params);
+		  }
 
 		} 
 	
