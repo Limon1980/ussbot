@@ -50,39 +50,21 @@ include ('func.lib.php');
 	
 	
 	if($text || $photo){
+		// ================= USER COMMANDS =================
+	       if ($text == '/start' && $comand != '/stepone') {
+	           handleStartCommand($telegram, $chat_id);
+	       } elseif ($text == 'Предложить объявление') {
+	           handleOfferAdCommand($telegram, $chat_id, $dbh);
+	       } elseif ($comand == '/adds' && $text && $text != '/stop' && $text != 'Сократить с ИИ' && $text != 'Удалить объявление') {
+	           handleNewAdText($dbh, $telegram, $chat_id, $text, $entities, $photo_caption_entities, $name);
+	       } elseif ($text == 'Удалить объявление' || $text == '/stop' || $text == 'Начать с начала') {
+	           handleDeleteAdCommand($dbh, $telegram, $chat_id, $IdPhoto);
+	       } elseif (($comand == '/stepone' || $comand == '/addphoto') && $text == 'Посмотреть') {
+	           handleViewAdCommand($dbh, $telegram, $token, $chat_id, $IdPhoto);
+	       }
+		// ===============================================
 		
-         if ($text == '/start' and $comand != '/stepone') {
-			
-				   $reply_markup = Keyboard::make()
-							  ->setResizeKeyboard(true)
-							  ->setOneTimeKeyboard(false)
-							  ->row([
-								Keyboard::button('Предложить объявление'),
-							  ]);
-
-					$telegram->sendMessage([
-					  'chat_id' => $chat_id,
-					  'text' => "Добро пожаловать в бота!\nЗдесь вы можете подать объявление на\nканал @uss_baraholka\n1 шаг: нажмите кнопку 'Предложить объявление'",
-					  'reply_markup' => $reply_markup
-					]);
-         }elseif ($text == 'Предложить объявление')
-		 {
-			 $reply = "2 шаг: Набирите на клавиатуре <b> ТОЛЬКО ТЕКСТ</b> объявления. Отправьте боту в ленту боковой стрелкой справа.\n<b>ФОТО можно будет добавить позже, через кнопку Добавить фото.</b>\nПример:\nПродается кровать деревянная \nЦена 1000 руб \nТел 89991234567";
-			 $reply_markup = Keyboard::remove(['selective' => false]);
-
-			$telegram->sendMessage([
-				'chat_id' => $chat_id,
-				'parse_mode' => 'HTML',
-				'text' => $reply,
-				'reply_markup' => $reply_markup
-			]);
-			 
-			 $comand = '/adds';
-			 $Row = $dbh->query("SELECT  comand FROM bufer_baraholka_bot WHERE chat_id = $chat_id");
-			 if (!$Row){
-			 $dbh->query("INSERT INTO  bufer_baraholka_bot VALUES (NULL, $chat_id, '$comand', TRUE)");
-			 }else{$dbh->query("UPDATE  bufer_baraholka_bot SET comand='$comand' WHERE chat_id=$chat_id");}
-		 }elseif ($comandAdmin == '/broadcast' && $chat_id == $chatAdmin) {
+		elseif ($comandAdmin == '/broadcast' && $chat_id == $chatAdmin) {
 			$telegram->sendMessage([
 				'chat_id' => $chatAdmin,
 				'text' => 'Введите текст для массовой рассылки всем пользователям бота.'
@@ -181,79 +163,9 @@ include ('func.lib.php');
 					'text' => "Пожалуйста, напишите /startbroadcast $broadcast_id для запуска или /cancelbroadcast для отмены."
 				]);
 			}
-		}elseif($comand == '/adds' and $text and $text != '/stop' && $text != 'Сократить с ИИ' && $text != 'Удалить объявление')
-		 {
-			 
-			 // добавляем в тект форматирование, если оно есть.
-			 if ($entities){
-							$text = formatMessage($text, $entities);
-							// $telegram->sendMessage(['chat_id' => $chatAdmin, 'text' => json_encode($result)]);
-							// $telegram->sendMessage(['chat_id' => $chatAdmin, 'text' => $text]);
-							}
-							
-			 if ($photo_caption_entities){
-							$text = formatMessage($text, $photo_caption_entities);
-							// $telegram->sendMessage(['chat_id' => $chatAdmin, 'text' => json_encode($result)]);
-							// $telegram->sendMessage(['chat_id' => $chatAdmin, 'text' => $text]);
-							}
-							
-			 $text = cat_phone($text).chr(10);
-			 // проверяем текст объявления на длину сообщения
-			 $len = mb_strlen($text);
-			 if ($len > 970){
-				 
-			$Row = $dbh->query("SELECT  moder, post FROM base_baraholka WHERE chat_id = $chat_id AND moder = 0 AND post = 0");
-			 if (!$Row){
-			 $dbh->query("INSERT INTO base_baraholka  VALUES (NULL, $chat_id, '$name', '$fname', '$lname', '$phone', '$text', 0, 0, NOW())");
-			 }
-			
-				$reply = "Текст вашего объявления слишком большой. Сократите текст с помощью ИИ или начните снова.";
-
-				$reply_markup = Keyboard::make()
-				  ->setResizeKeyboard(true)
-				  ->setOneTimeKeyboard(false)
-				  ->row([
-					Keyboard::inlineButton(['text' => 'Сократить с ИИ']),
-				  ])
-				  ->row([
-					Keyboard::inlineButton(['text' => 'Удалить объявление']),
-				  ]);
-
-				$telegram->sendMessage([
-				  'chat_id' => $chat_id,
-				  'text' => $reply,
-				  'reply_markup' => $reply_markup
-				]);
-				
-			
-			}else{
-			 $Row = $dbh->query("SELECT  moder, post FROM base_baraholka WHERE chat_id = $chat_id AND moder = 0 AND post = 0");
-			 if (!$Row){
-			 $dbh->query("INSERT INTO base_baraholka  VALUES (NULL, $chat_id, '$name', '$fname', '$lname', '$phone', '$text', 0, 0, NOW())");
-			 }
-			 $comand = '/stepone';
-			 $dbh->query("UPDATE  bufer_baraholka_bot SET comand='$comand' WHERE chat_id=$chat_id");
-			 $reply = "3 шаг: нажмите кнопку ДОБАВИТЬ ФОТО или КНОПКУ С ДЕЙСТВИЕМ!";
-
-				$reply_markup = Keyboard::make()
-				  ->setResizeKeyboard(true)
-				  ->setOneTimeKeyboard(false)
-				  ->row([
-					Keyboard::inlineButton(['text' => 'Опубликовать']),
-					Keyboard::inlineButton(['text' => 'Посмотреть'])
-				  ])
-				  ->row([
-					Keyboard::inlineButton(['text' => 'Удалить объявление']),
-					Keyboard::inlineButton(['text' => 'Добавить фото'])
-				  ]);
-
-				$telegram->sendMessage([
-				  'chat_id' => $chat_id,
-				  'text' => $reply,
-				  'reply_markup' => $reply_markup
-				]);
-			}
-		 }elseif($comand == '/adds'  && $text == 'Сократить с ИИ' && $text != '/stop')
+		}
+		
+		elseif($comand == '/adds'  && $text == 'Сократить с ИИ' && $text != '/stop')
 		 {
 			 
 			 include 'gpt_check.php';
@@ -320,61 +232,9 @@ include ('func.lib.php');
 			 $dbh->query("INSERT INTO   base_photo_baraholka VALUES (NULL, $IdPhoto, '$photo', '')");
 	         $telegram->sendMessage([ 'chat_id' => $chat_id, 'text' => 'Фото добавлено. Загружено '.$CountPhoto. " фото.\nДобавьте еще фото через скрепку или\n5 шаг: нажмите кнопку ПОСМОТРЕТЬ - чтобы посмотреть как выглядит ваше объявление."]);}
 			 else{$telegram->sendMessage([ 'chat_id' => $chat_id, 'text' => "Уже загружено максимальное колличество фото!\n5 шаг: нажмите кнопку ПОСМОТРЕТЬ - чтобы посмотреть как выглядит ваше объявление."]);}
-		 }elseif ($text == 'Удалить объявление' || $text == '/stop' || $text == 'Начать с начала')
-		 {
-			 if($IdPhoto){
-			 $dbh->query("DELETE FROM base_photo_baraholka WHERE id_base=$IdPhoto");
-			 $dbh->query("DELETE FROM base_baraholka WHERE id=$IdPhoto");
-			 $comand = '';
-			 $dbh->query("UPDATE  bufer_baraholka_bot SET comand='$comand' WHERE chat_id=$chat_id");
-			 }
-			 $reply = "Объявление удалено. Запустите бота вновь командой\n/start";
-			 $reply_markup = json_encode(['remove_keyboard' => true]);
-			 $telegram->sendMessage([ 'chat_id' => $chat_id, 'text' => $reply, 'reply_markup' => $reply_markup]);
-		 }elseif (($comand == '/stepone' || $comand == '/addphoto') and $text == 'Посмотреть')
-		 {
-			 // Берем из базы объявление с модерацией 0
-			 $Row = $dbh->query("SELECT  text, phone, username FROM base_baraholka WHERE chat_id = $chat_id AND moder = 0 AND id=$IdPhoto");
-			 $phone = $Row[0]['phone'];
-			 $text = $Row[0]['text'];
-			 $nick = $Row[0]['username']? '@'.$Row[0]['username']: '';
-			 if (str_contains($text, '@')){$nick = '';}
-			 $RowIdBase = $dbh->query("SELECT  photo_id FROM base_photo_baraholka WHERE id_base=$IdPhoto");
-			 // Выводим все фото, до 10 штук, методом sendMedia и к последней фото добовляем caption
-			 if ($RowIdBase){
-			 foreach ($RowIdBase as $key){
-			 // $media .= '{"type":"photo","media":"'.$key['photo_id'].'"}, ';
-			  $photo_file = [
-						'type' => 'photo',
-						'media' => $key['photo_id'],
-						'caption' => '',
-						'parse_mode' => 'HTML'
-					];
-			 
-			 $media_arr[] = $photo_file;
-			 }
-			 
-			$cnt = count($media_arr);
-			$media_arr[$cnt - 1]['caption'] = $text.' '.$nick;
-					
-			
-			 // $len = mb_strlen($media);
-			 // $media = mb_substr($media, 0, $len-3).',"caption":"'.json_encode($text) . ' ' . $nick.'","parse_mode":"HTML"}';
-
-			 $request_params = [
-							'chat_id' => $chat_id,
-							'media' => json_encode($media_arr),
-							'parse_mode' => 'HTML'
-							];	 
-			 sendMedia($token, $request_params);
-		 }
-			if (!$RowIdBase){
-				$telegram->sendMessage([ 'chat_id' => $chat_id, 'text' => $text .' '. $nick , 'parse_mode' => 'HTML']);
 			}
-			$telegram->sendMessage([ 'chat_id' => $chat_id, 'text' => '6 шаг: нажмите кнопку ОПУБЛИКОВАТЬ для отправки объявления на модерацию']);
 			
-			
-		 }elseif (($comand == '/stepone' || $comand == '/addphoto') and $text == 'Опубликовать')
+			elseif (($comand == '/stepone' || $comand == '/addphoto') and $text == 'Опубликовать')
 		 {
         $RowIdBase = $dbh->query("SELECT  photo_id FROM base_photo_baraholka WHERE id_base=$IdPhoto");
 		$RowPhoneNick = $dbh->query("SELECT  phone, username FROM base_baraholka WHERE id = $IdPhoto");
@@ -738,89 +598,118 @@ include ('func.lib.php');
 
 		  // Обработка оплаты объявления
 		  if (strpos($data, 'pay_') === 0) {
-			  $ad_id = str_replace('pay_', '', $data);
-			  
-			  // Проверяем, принадлежит ли объявление пользователю
-			  $ad_check = $dbh->query("SELECT * FROM base_baraholka WHERE id = $ad_id AND chat_id = $chat_id");
-			  
-			  if (!empty($ad_check)) {
-				  // Показываем информацию об оплате
-				  $payment_text = "💰 <b>Оплата размещения объявления</b>\n\n";
-				  $payment_text .= "Стоимость: <b>50 рублей</b>\n";
-				  $payment_text .= "Номер объявления: <b>#{$ad_id}</b>\n\n";
-				  $payment_text .= "Для оплаты напишите администратору: @olegpopjs\n";
-				  $payment_text .= "Укажите номер объявления: <b>#{$ad_id}</b>\n\n";
-				  $payment_text .= "После подтверждения оплаты ваше объявление будет опубликовано.";
-				  
-				  // Кнопка подтверждения оплаты (для демонстрации)
-				  $reply_markup = [
-					  'inline_keyboard' => [
-						  [
-							  ['text' => '✅ Я оплатил объявление', 'callback_data' => 'confirm_payment_' . $ad_id]
-						  ]
-					  ]
-				  ];
-				  
-				  $telegram->editMessageText([
-					  'chat_id' => $chat_id,
-					  'message_id' => $mesId,
-					  'text' => $payment_text,
-					  'parse_mode' => 'HTML',
-					  'reply_markup' => json_encode($reply_markup)
-				  ]);
-			  } else {
-				  $telegram->answerCallbackQuery([
-					  'callback_query_id' => $callback_id,
-					  'text' => 'Ошибка: объявление не найдено',
-					  'show_alert' => true
-				  ]);
-			  }
+		   $ad_id = str_replace('pay_', '', $data);
+		   
+		   // Проверяем, принадлежит ли объявление пользователю
+		   $ad_check = $dbh->query("SELECT * FROM base_baraholka WHERE id = $ad_id AND chat_id = $chat_id");
+		   
+		   if (!empty($ad_check)) {
+		    // Проверяем сколько объявлений пользователь уже оплатил сегодня
+		    $today = date('Y-m-d');
+		    $paid_count = $dbh->query("SELECT COUNT(*) as cnt FROM base_baraholka WHERE chat_id = $chat_id AND DATE(paid_at) = '$today' AND paid = 1");
+		    $paid_count = $paid_count[0]['cnt'] ?? 0;
+		    
+		    if ($paid_count >= 2) {
+		  	  // Отправляем счет на оплату через Telegram Invoice (ЮKassa)
+		  	  $provider_token = 'ваш_токен_юкассы'; // Замените на ваш реальный токен
+		  	  $label = "Оплата размещения объявления #$ad_id";
+		  	  $amount = 5000; // 50 рублей в копейках
+		  	  
+		  	  $telegram->sendInvoice([
+		  		  'chat_id' => $chat_id,
+		  		  'title' => $label,
+		  		  'description' => "Оплата размещения объявления на канале",
+		  		  'payload' => "pay_ad_$ad_id",
+		  		  'provider_token' => $provider_token,
+		  		  'start_parameter' => "pay_ad_$ad_id",
+		  		  'currency' => 'RUB',
+		  		  'prices' => [
+		  			  ['label' => $label, 'amount' => $amount]
+		  		  ],
+		  		  'need_email' => false,
+		  		  'provider_data' => json_encode([
+		  			  "receipt" => [
+		  				  "customer" => ["email" => ""],
+		  				  "items" => [[
+		  					  "description" => $label,
+		  					  "quantity" => "1.00",
+		  					  "amount" => [
+		  						  "value" => number_format($amount / 100, 2, '.', ''),
+		  						  "currency" => "RUB"
+		  					  ],
+		  					  "vat_code" => 1,
+		  					  "payment_mode" => "full_prepayment",
+		  					  "payment_subject" => "service"
+		  				  ]]
+		  			  ]
+		  		  ])
+		  	  ]);
+		    } else {
+		  	  // Если оплаченных объявлений меньше 2, публикуем бесплатно
+		  	  publishAd($dbh, $telegram, $token, $chat_id, $ad_id, $chatAdmin);
+		  	  $telegram->editMessageText([
+		  		  'chat_id' => $chat_id,
+		  		  'message_id' => $mesId,
+		  		  'text' => "✅ Ваше объявление опубликовано бесплатно.",
+		  		  'parse_mode' => 'HTML'
+		  	  ]);
+		    }
+		   } else {
+		    $telegram->answerCallbackQuery([
+		  	  'callback_query_id' => $callback_id,
+		  	  'text' => 'Ошибка: объявление не найдено',
+		  	  'show_alert' => true
+		    ]);
+		   }
 		  }
 		  // Обработка подтверждения оплаты
 		  elseif (strpos($data, 'confirm_payment_') === 0) {
-			  $ad_id = str_replace('confirm_payment_', '', $data);
-			  
-			  // Проверяем, принадлежит ли объявление пользователю
-			  $ad_check = $dbh->query("SELECT * FROM base_baraholka WHERE id = $ad_id AND chat_id = $chat_id");
-			  
-			  if (!empty($ad_check)) {
-				  // Обрабатываем оплату
-				  if (processPayment($dbh, $telegram, $chat_id, $ad_id)) {
-					  // Уведомляем админа об оплаченном объявлении
-					  $admin_notification = "💰 <b>ПОЛУЧЕНА ОПЛАТА ЗА ОБЪЯВЛЕНИЕ</b> 💰\n\n";
-					  $admin_notification .= "Номер объявления: <b>#{$ad_id}</b>\n";
-					  $admin_notification .= "Пользователь: @{$username} (ID: {$chat_id})\n";
-					  $admin_notification .= "Сумма: <b>50 рублей</b>\n\n";
-					  $admin_notification .= "Объявление готово к публикации:\n";
-					  $admin_notification .= "/post{$ad_id}";
-					  
-					  $telegram->sendMessage([
-						  'chat_id' => $chatAdmin,
-						  'text' => $admin_notification,
-						  'parse_mode' => 'HTML'
-					  ]);
-					  
-					  // Удаляем кнопки оплаты
-					  $telegram->editMessageText([
-						  'chat_id' => $chat_id,
-						  'message_id' => $mesId,
-						  'text' => "✅ <b>Оплата подтверждена!</b>\n\nВаше объявление отправлено на модерацию и будет опубликовано в ближайшее время.",
-						  'parse_mode' => 'HTML'
-					  ]);
-				  } else {
-					  $telegram->answerCallbackQuery([
-						  'callback_query_id' => $callback_id,
-						  'text' => 'Объявление уже оплачено',
-						  'show_alert' => true
-					  ]);
-				  }
-			  } else {
-				  $telegram->answerCallbackQuery([
-					  'callback_query_id' => $callback_id,
-					  'text' => 'Ошибка: объявление не найдено',
-					  'show_alert' => true
-				  ]);
-			  }
+		   $ad_id = str_replace('confirm_payment_', '', $data);
+		   
+		   // Проверяем, принадлежит ли объявление пользователю
+		   $ad_check = $dbh->query("SELECT * FROM base_baraholka WHERE id = $ad_id AND chat_id = $chat_id");
+		   
+		   if (!empty($ad_check)) {
+		    // Проверяем, не оплачено ли уже объявление
+		    if ($ad_check[0]['paid'] == 1) {
+		  	  $telegram->answerCallbackQuery([
+		  		  'callback_query_id' => $callback_id,
+		  		  'text' => 'Объявление уже оплачено',
+		  		  'show_alert' => true
+		  	  ]);
+		    } else {
+		  	  // Обновляем статус оплаты в базе
+		  	  $dbh->query("UPDATE base_baraholka SET paid = 1, paid_at = NOW() WHERE id = $ad_id");
+		  	  
+		  	  // Уведомляем админа об оплаченном объявлении
+		  	  $admin_notification = "💰 <b>ПОЛУЧЕНА ОПЛАТА ЗА ОБЪЯВЛЕНИЕ</b> 💰\n\n";
+		  	  $admin_notification .= "Номер объявления: <b>#{$ad_id}</b>\n";
+		  	  $admin_notification .= "Пользователь: @{$username} (ID: {$chat_id})\n";
+		  	  $admin_notification .= "Сумма: <b>50 рублей</b>\n\n";
+		  	  $admin_notification .= "Объявление готово к публикации:\n";
+		  	  $admin_notification .= "/post{$ad_id}";
+		  	  
+		  	  $telegram->sendMessage([
+		  		  'chat_id' => $chatAdmin,
+		  		  'text' => $admin_notification,
+		  		  'parse_mode' => 'HTML'
+		  	  ]);
+		  	  
+		  	  // Удаляем кнопки оплаты и подтверждаем пользователю
+		  	  $telegram->editMessageText([
+		  		  'chat_id' => $chat_id,
+		  		  'message_id' => $mesId,
+		  		  'text' => "✅ <b>Оплата подтверждена!</b>\n\nВаше объявление отправлено на модерацию и будет опубликовано в ближайшее время.",
+		  		  'parse_mode' => 'HTML'
+		  	  ]);
+		    }
+		   } else {
+		    $telegram->answerCallbackQuery([
+		  	  'callback_query_id' => $callback_id,
+		  	  'text' => 'Ошибка: объявление не найдено',
+		  	  'show_alert' => true
+		    ]);
+		   }
 		  }
 		  else {
 			  $request_params = [

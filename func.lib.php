@@ -1,4 +1,4 @@
-<?php
+П<?php
 
 function FormChars ($p1) {
 return htmlspecialchars (trim($p1), ENT_QUOTES);
@@ -553,5 +553,134 @@ function createTables($dbh) {
         return false;
     }
 }
+
+
+//============== РЕФАКТОРИНГ: ОБРАБОТЧИКИ КОМАНД ==============
+
+function handleStartCommand($telegram, $chat_id) {
+    $reply_markup = \Telegram\Bot\Keyboard\Keyboard::make()
+        ->setResizeKeyboard(true)
+        ->setOneTimeKeyboard(false)
+        ->row([
+            \Telegram\Bot\Keyboard\Keyboard::button('Предложить объявление'),
+        ]);
+
+    $telegram->sendMessage([
+        'chat_id' => $chat_id,
+        'text' => "Добро пожаловать в бота!\nЗдесь вы можете подать объявление на\nканал @uss_baraholka\n1 шаг: нажмите кнопку 'Предложить объявление'",
+        'reply_markup' => $reply_markup
+    ]);
+}
+
+function handleOfferAdCommand($telegram, $chat_id, $dbh) {
+    $reply = "2 шаг: Набирите на клавиатуре <b> ТОЛЬКО ТЕКСТ</b> объявления. Отправьте боту в ленту боковой стрелкой справа.\n<b>ФОТО можно будет добавить позже, через кнопку Добавить фото.</b>\nПример:\nПродается кровать деревянная \nЦена 1000 руб \nТел 89991234567";
+    $reply_markup = \Telegram\Bot\Keyboard\Keyboard::remove(['selective' => false]);
+
+    $telegram->sendMessage([
+        'chat_id' => $chat_id,
+        'parse_mode' => 'HTML',
+        'text' => $reply,
+        'reply_markup' => $reply_markup
+    ]);
+
+    $comand = '/adds';
+    $Row = $dbh->query("SELECT comand FROM bufer_baraholka_bot WHERE chat_id = $chat_id");
+    if (!$Row) {
+        $dbh->query("INSERT INTO bufer_baraholka_bot VALUES (NULL, $chat_id, '$comand', TRUE)");
+    } else {
+        $dbh->query("UPDATE bufer_baraholka_bot SET comand='$comand' WHERE chat_id=$chat_id");
+    }
+}
+
+function handleNewAdText($dbh, $telegram, $chat_id, $text, $entities, $photo_caption_entities, $name) {
+    if ($entities) {
+        $text = formatMessage($text, $entities);
+    }
+    if ($photo_caption_entities) {
+        $text = formatMessage($text, $photo_caption_entities);
+    }
+
+    $text = cat_phone($text) . chr(10);
+    $len = mb_strlen($text);
+
+    $Row = $dbh->query("SELECT moder, post FROM base_baraholka WHERE chat_id = $chat_id AND moder = 0 AND post = 0");
+    if (!$Row) {
+        $phone = (get_phone($text)) ?: '';
+        $dbh->query("INSERT INTO base_baraholka (chat_id, username, text, phone) VALUES ($chat_id, '$name', '$text', '$phone')");
+    } else {
+		$dbh->query("UPDATE base_baraholka SET text = '$text' WHERE chat_id = $chat_id AND moder = 0 AND post = 0");
+	}
+
+
+    if ($len > 970) {
+        $reply = "Текст вашего объявления слишком большой. Сократите текст с помощью ИИ или начните снова.";
+        $reply_markup = \Telegram\Bot\Keyboard\Keyboard::make()
+            ->setResizeKeyboard(true)
+            ->setOneTimeKeyboard(false)
+            ->row([\Telegram\Bot\Keyboard\Keyboard::inlineButton(['text' => 'Сократить с ИИ'])])
+            ->row([\Telegram\Bot\Keyboard\Keyboard::inlineButton(['text' => 'Удалить объявление'])]);
+
+        $telegram->sendMessage(['chat_id' => $chat_id, 'text' => $reply, 'reply_markup' => $reply_markup]);
+    } else {
+        $comand = '/stepone';
+        $dbh->query("UPDATE bufer_baraholka_bot SET comand='$comand' WHERE chat_id=$chat_id");
+        
+        $reply = "3 шаг: нажмите кнопку ДОБАВИТЬ ФОТО или КНОПКУ С ДЕЙСТВИЕМ!";
+        $reply_markup = \Telegram\Bot\Keyboard\Keyboard::make()
+            ->setResizeKeyboard(true)
+            ->setOneTimeKeyboard(false)
+            ->row([
+                \Telegram\Bot\Keyboard\Keyboard::inlineButton(['text' => 'Опубликовать']),
+                \Telegram\Bot\Keyboard\Keyboard::inlineButton(['text' => 'Посмотреть'])
+            ])
+            ->row([
+                \Telegram\Bot\Keyboard\Keyboard::inlineButton(['text' => 'Удалить объявление']),
+                \Telegram\Bot\Keyboard\Keyboard::inlineButton(['text' => 'Добавить фото'])
+            ]);
+
+        $telegram->sendMessage(['chat_id' => $chat_id, 'text' => $reply, 'reply_markup' => $reply_markup]);
+    }
+}
+
+function handleDeleteAdCommand($dbh, $telegram, $chat_id, $IdPhoto) {
+    if ($IdPhoto) {
+        $dbh->query("DELETE FROM base_photo_baraholka WHERE id_base=$IdPhoto");
+        $dbh->query("DELETE FROM base_baraholka WHERE id=$IdPhoto");
+        $dbh->query("UPDATE bufer_baraholka_bot SET comand='' WHERE chat_id=$chat_id");
+    }
+    $reply = "Объявление удалено. Запустите бота вновь командой\n/start";
+    $reply_markup = json_encode(['remove_keyboard' => true]);
+    $telegram->sendMessage(['chat_id' => $chat_id, 'text' => $reply, 'reply_markup' => $reply_markup]);
+}
+
+function handleViewAdCommand($dbh, $telegram, $token, $chat_id, $IdPhoto) {
+    $Row = $dbh->query("SELECT text, phone, username FROM base_baraholka WHERE chat_id = $chat_id AND moder = 0 AND id=$IdPhoto");
+    $text = $Row[0]['text'];
+    $nick = $Row[0]['username'] ? '@' . $Row[0]['username'] : '';
+    if (str_contains($text, '@')) {
+        $nick = '';
+    }
+
+    $RowIdBase = $dbh->query("SELECT photo_id FROM base_photo_baraholka WHERE id_base=$IdPhoto");
+
+    if ($RowIdBase) {
+        $media_arr = [];
+        foreach ($RowIdBase as $key) {
+            $media_arr[] = ['type' => 'photo', 'media' => $key['photo_id'], 'caption' => '', 'parse_mode' => 'HTML'];
+        }
+        $cnt = count($media_arr);
+        if ($cnt > 0) {
+            $media_arr[$cnt - 1]['caption'] = $text . ' ' . $nick;
+        }
+        
+        $request_params = ['chat_id' => $chat_id, 'media' => json_encode($media_arr), 'parse_mode' => 'HTML'];
+        sendMedia($token, $request_params);
+    } else {
+        $telegram->sendMessage(['chat_id' => $chat_id, 'text' => $text . ' ' . $nick, 'parse_mode' => 'HTML']);
+    }
+
+    $telegram->sendMessage(['chat_id' => $chat_id, 'text' => '6 шаг: нажмите кнопку ОПУБЛИКОВАТЬ для отправки объявления на модерацию']);
+}
+
 
 ?>
