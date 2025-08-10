@@ -3,21 +3,17 @@ ini_set('display_errors', true);
 ini_set('display_startup_errors', true);
 ini_set('error_reporting', -1);
 
-const USERNAME="user1";
-const PASSWORD="Password";
-const HOST="localhost";
-const DB="data";
-
+require_once __DIR__ . '/../config.php';
 
 class Db {
 
     protected $dbh;
     public function __construct()
     {
-        $username = USERNAME;
-        $password = PASSWORD;
-        $host = HOST;
-        $db = DB;
+        $username = DB_USER;
+        $password = DB_PASSWORD;
+        $host = DB_HOST;
+        $db = DB_NAME;
         $this->dbh  =  new PDO("mysql:dbname=$db;host=$host;charset=utf8mb4", $username, $password);
     }
     public function execute( $sql){
@@ -49,8 +45,8 @@ class Db {
 	}
 
 	private function reconnect() {
-        $this->dbh = new PDO("mysql:dbname=$db;host=$host;charset=utf8mb4", $username, $password); // Повторная инициализация
-    }
+	       $this->dbh = new PDO("mysql:dbname=".DB_NAME.";host=".DB_HOST.";charset=utf8mb4", DB_USER, DB_PASSWORD); // Повторная инициализация
+	   }
 		
 	// Новый метод для получения последнего ID
     public function lastInsertId()

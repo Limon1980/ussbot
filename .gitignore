@@ -1,0 +1,9 @@
+# Configuration file with sensitive data
+config.php
+
+# Vendor directory
+/vendor/
+
+# Log files
+*.log
+broadcast_log.txt

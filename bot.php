@@ -3,8 +3,9 @@
 include('../vendor/autoload.php');
 include ('classes/db.php');
 include ('func.lib.php');
+include ('config.php');
 
- use Telegram\Bot\Api; 
+ use Telegram\Bot\Api;
 	//use Telegram\Bot\Keyboard;
     //use Telegram\Bot\Actions;
     use Telegram\Bot\Commands\Command;
@@ -13,9 +14,9 @@ include ('func.lib.php');
 	//use Telegram\Bot\Commands\Command;
 	use Telegram\Bot\Keyboard\Keyboard;
 
-	
 
-	$token = 'token';
+
+	$token = TELEGRAM_BOT_TOKEN;
     $telegram = new Api($token); //Устанавливаем токен, полученный у BotFather
 	$dbh = new Db();
 	
@@ -43,7 +44,7 @@ include ('func.lib.php');
 	$comand = preg_replace('/[0-9]/','', $RowComand[0]['comand']);
 	$comand_photo = $RowComand[0]['comand'];
 	}
-	$chatAdmin = '337959904'; // Устанавливае ID чата с ботом админа
+	$chatAdmin = TELEGRAM_ADMIN_ID; // Устанавливае ID чата с ботом админа
 	$comandAdmin = FormChars(preg_replace('/[0-9]/','', $text));
 	$comandAdminId = preg_replace('/[a-z]|\//','', $text);
 	
@@ -611,7 +612,7 @@ include ('func.lib.php');
 		    
 		    if ($paid_count >= 2) {
 		  	  // Отправляем счет на оплату через Telegram Invoice (ЮKassa)
-		  	  $provider_token = 'ваш_токен_юкассы'; // Замените на ваш реальный токен
+		  	  $provider_token = YOOKASSA_PROVIDER_TOKEN; // Замените на ваш реальный токен
 		  	  $label = "Оплата размещения объявления #$ad_id";
 		  	  $amount = 5000; // 50 рублей в копейках
 		  	  
